@@ -3,11 +3,14 @@
   :url "http://example.com/FIXME"
 
   :dependencies [[org.clojure/clojure "1.6.0"]
-                 [org.clojure/clojurescript "0.0-2311"]
+                 [org.clojure/clojurescript "0.0-2843"]
                  [org.clojure/core.async "0.1.346.0-17112a-alpha"]
-                 [om "0.7.1"]]
+                 [om "0.7.1"]
+                 [prismatic/schema "0.4.0"]
+                 [figwheel "0.2.5"]]
 
-  :plugins [[lein-cljsbuild "1.0.4-SNAPSHOT"]]
+  :plugins [[lein-cljsbuild "1.0.4"]
+            [lein-figwheel "0.2.5"]]
 
   :source-paths ["src"]
 
@@ -15,7 +18,7 @@
     :builds [{:id "lg-checkers"
               :source-paths ["src"]
               :compiler {
-                :output-to "lg_checkers.js"
-                :output-dir "out"
+                :output-to "resources/public/js/lg_checkers.js"
+                :output-dir "resources/public/js"
                 :optimizations :none
                 :source-map true}}]})
