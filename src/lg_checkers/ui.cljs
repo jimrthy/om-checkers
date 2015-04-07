@@ -23,13 +23,15 @@
 ; == UI events ==========================================
 ; when we click a game square, we send an event
 (defn board-click [board-pos]
+  (println "DOM click")
   (put! board/board-events {:event :board-clicked
-                      :position board-pos}))
+                            :position board-pos}))
 
 ; == Board UI Drawing ===================================
 ; draw pieces based on the piece-type
 (defn draw-piece [piece-type]
-  (apply dom/div #js {:className piece-type} nil))
+  (om/component
+   (dom/div #js {:className piece-type} nil)))
 
 ; draws pairs of checkerboard squares within a row
 ; depending on if row is odd or even.
@@ -43,7 +45,7 @@
                                    :onClick
                                    (fn [e] (board-click
                                             piece-pos))}
-                              (draw-piece piece-type))]
+                              (om/build draw-piece piece-type))]
      (apply dom/span nil (if row-odd?
                            [white-square green-square]
                            [green-square white-square])))))
@@ -63,13 +65,9 @@
 (defn checkerboard [board owner]
   (om/component
    (println "Rendering the playing field:\n" (pr-str board))
-   (apply dom/table nil
-          ;; Note that we're working with a sorted map
-          ;; We can't really do it this way, though.
-          ;; The om cursor really needs to point to a node
-          ;; in the actual map.
-          (comment (throw (ex-info "Start here" {:problem "Isn't working"})))
-          (om/build-all draw-row (partition 4 (:playing-field board))))))
+   (dom/table nil
+              (apply dom/tbody nil
+                     (om/build-all draw-row (partition 4 (:playing-field board)))))))
 
 ; == Bootstrap ============================================
 (defn bootstrap-ui []

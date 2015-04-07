@@ -25,6 +25,23 @@
 (def board-repr {:playing-field {s/Int pieces}
                  :blacks-turn? s/Bool})
 
+;;; Another namespace is responsible for converting DOM
+;;; (real or simulated) events into request-events
+(def input-events (s/enum :board-clicked))
+(def request-event {:event input-events
+                    :position s/Int})
+;;; It's our responsibility to translate those into
+;;; command-events and cope with them (legal or not)
+(def legal-commands (s/enum :update-board-position))
+(def command-event {:command legal-commands
+                    :position s/Int
+                    :piece pieces})
+
+(defmulti board-update
+  "Return the appropriate new state of the board after applying command"
+  (fn [command old-board-state]
+    (:command command)))
+
 ; == Internals ==============================================
 
 (enable-console-print!)
@@ -60,9 +77,28 @@
     ;; us they want to move here
     :piece-to-move nil}))
 
-(defn reset []
+(defn reset
+  "Start over with a clean slate"
+  []
   (swap! board (fn [_] @(create-board)))
   (swap! event-stack (fn [_] [])))
+
+(s/defn game-over? :- s/Bool
+  [game-state]
+  (let [contents (-> game-state :playing-field vals)]
+    ;; TODO: Also have to check that the current player has
+    ;; a legal move available
+    (and (some #(or (= :black-piece %)
+                    (= :prom-black-piece %)) contents)
+         (some #(or (= :red-piece %) (= :prom-red-piece %)) contents))))
+
+(defmethod board-update :move
+  [cmd current]
+  (throw (ex-info "Not Implemented" {:problem "Get this written"})))
+
+(defmethod board-update :select
+  [cmd current]
+  (throw (ex-info "Not Implemented" {:problem "Get this written"})))
 
 ; given a board position, return the position of neighbors
 ; [NOTE:] Challengee should investigate memoization of
@@ -121,6 +157,52 @@
 ;; hashmap that we can look up directly.
 (compute-neighbor-positions)
 
+(s/defn red-event->command :- (s/maybe command-event)
+  [game-state
+   ev :- request-event]
+  (println "It's red's turn")
+  (throw (ex-info "Not Implemented"
+                  {:problem "This would almost be a direct copy/paste from the black event version"})))
+
+(s/defn black-event->command :- (s/maybe command-event)
+  [game-state ev :- request-event]
+  ;; Will potentially return things like
+  #_{:command :update-board-position
+     :position (:position event)
+     :piece :black-piece}
+  (println "Black's move:\n" (pr-str ev) "\non\n" (pr-str game-state))
+  (let [result
+        (let [cell-index (:position ev)]
+          (println "Where's our playing field?")
+          (let [playing-field (:playing-field game-state)]
+            (println "What's in cell " cell-index "where the click happened?")
+            (let [clicked-contents (playing-field cell-index)]
+              (println "Clicked on" (pr-str clicked-contents) "\nIs this the second half of an attempted move?")
+              (let [starting-index (:piece-to-move game-state)]
+                (println "Analyzing move")
+                (cond (and starting-index
+                           (= clicked-contents :empty))
+                      {:command :move
+                       :from starting-index
+                       :to cell-index}
+                      (or (= clicked-contents :black-piece)
+                          (= clicked-contents :prom-black-piece))
+                      {:command :select
+                       :at cell-index}
+                      :else (println "Illegal event attempted"))))))]
+    (println "event->command => " (pr-str result))
+    result))
+
+(s/defn event->command :- (s/maybe command-event)
+  "Translate an incoming request into an outgoing command.
+Or nil, if the request isn't legal."
+  [ev :- request-event]
+  (println "Applying business rules to the event")
+  (let [game-state @board]
+    (if (:blacks-turn? game-state)
+      (black-event->command game-state ev)
+      (red-event->command game-state ev))))
+
 ; == Concurrent Processes =================================
 
 ; the board receives commands to manipulate its state
@@ -137,23 +219,27 @@
 
 (go (while true
       (let [event (<! board-events)]
+        (print "UI event loop: " event)
         ;; Save all the incoming events to
         ;; make the playback more realistic
         (swap! event-stack conj event)
-        (put! board-commands
-              {:command :update-board-position
-               :position (:position event)
-               :piece :black-piece}))))
+        (when-let [command (event->command event)]
+          (println "Sending command to update the game")
+          (put! board-commands command)))))
 
 ; this concurrent process receives board command messages
 ; and executes on them.  at present, the only thing it does
 ; is sets the desired game position to the desired piece
 (go (while true
       (let [command (<! board-commands)]
-        (swap! board
+        (print "Command event loop: " command)
+        (swap! board (partial board-update command)
                (fn [old]
                  (assoc-in old [:playing-field (:position command)]
-                           (:piece command)))))))
+                           (:piece command))))
+        (when (game-over? @board)
+          ;; TODO: Congratulate the winner
+          (reset)))))
 
 ; == Public ===========================================
 
