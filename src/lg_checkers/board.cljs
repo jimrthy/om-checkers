@@ -9,8 +9,7 @@
 ;;;; user interaction events, as well as changing the board
 ;;;; state.
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Schema
+; == Schema ==================================================
 
 ;; These map to entries in checkers.css
 (def pieces (s/enum :empty
@@ -26,12 +25,18 @@
 (def board-repr {:playing-field {s/Int pieces}
                  :blacks-turn? s/Bool})
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Internals
+; == Internals ==============================================
 
 (enable-console-print!)
 
+;;; Namespace level vars like this are, at best, a
+;;; code smell.
+;;; TODO: Come up with a better approach
+(defonce event-stack (atom []))
+(declare board board-commands board-events)
+
 ; === Utility Functions =================================
+
 ; positional constants
 (def top-row 1)
 (def bottom-row 8)
@@ -49,7 +54,15 @@
                                          [(repeat 12 :red-piece)
                                           (repeat 8 :empty-piece)
                                           (repeat 12 :black-piece)]))))
-    :blacks-turn? true}))
+    :blacks-turn? true
+    ;; When a player clicks on his piece, it's the first half
+    ;; of moving it. Keep track of which piece they've told
+    ;; us they want to move here
+    :piece-to-move nil}))
+
+(defn reset []
+  (swap! board (fn [_] @(create-board)))
+  (swap! event-stack (fn [_] [])))
 
 ; given a board position, return the position of neighbors
 ; [NOTE:] Challengee should investigate memoization of
@@ -117,13 +130,16 @@
 
 (def board-commands (chan))
 
-; this concurrent process reacts to board click events --
-; at present, it sets the board position clicked to contain
-; a black piece by sending a command to the board-commands
-; channel
-(declare board-events)
+;; this concurrent process reacts to board click events --
+;; at present, it sets the board position clicked to contain
+;; a black piece by sending a command to the board-commands
+;; channel
+
 (go (while true
       (let [event (<! board-events)]
+        ;; Save all the incoming events to
+        ;; make the playback more realistic
+        (swap! event-stack conj event)
         (put! board-commands
               {:command :update-board-position
                :position (:position event)
@@ -132,14 +148,14 @@
 ; this concurrent process receives board command messages
 ; and executes on them.  at present, the only thing it does
 ; is sets the desired game position to the desired piece
-(declare board board-commands)
 (go (while true
       (let [command (<! board-commands)]
-        (swap! board assoc (:position command)
-                           (:piece command)))))
+        (swap! board
+               (fn [old]
+                 (assoc-in old [:playing-field (:position command)]
+                           (:piece command)))))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Public
+; == Public ===========================================
 
 ; ===Channels ===========================================
 ; the board generates events on this channel
