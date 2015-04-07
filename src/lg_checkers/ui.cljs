@@ -23,42 +23,67 @@
 ; == UI events ==========================================
 ; when we click a game square, we send an event
 (defn board-click [board-pos]
-  (println "DOM click")
+  (println "board-click: forwarding DOM click")
   (put! board/board-events {:event :board-clicked
                             :position board-pos}))
 
 ; == Board UI Drawing ===================================
 ; draw pieces based on the piece-type
-(defn draw-piece [piece-type]
+(defn draw-piece [_ owner
+                  {:keys [piece-pos piece-type] :as opts}]
+  (println "Top of draw-piece")
   (om/component
-   (dom/div #js {:className piece-type} nil)))
+   ;; If I convert this to a span, the pieces don't get
+   ;; drawn.
+   (println "Rendering a" piece-type "at " piece-pos)
+   (dom/div #js {:className piece-type :id (str piece-type "-" piece-pos)} nil)))
+
+(s/defn draw-square [color :- (s/enum "white" "green")
+                     owner
+                     {:keys [piece-pos piece-type] :as opts} :- {:piece-pos s/Int
+                                                                 :piece-type s/Str}]
+  (om/component
+   (println "Drawing the square at" piece-pos)
+   (let [attrs (if (= "green" color)
+                 #js {:className color
+                      :onClick (fn [e]
+                                     (println "DOM click on square " piece-pos)
+                                     (board-click piece-pos)
+                                     (println "Event placed on channel"))}
+                 #js {:className color})]
+     (println attrs)
+     (dom/td attrs
+             (when (= "green" color)
+               (om/build draw-piece nil {:opts {:piece-type piece-type
+                                                :piece-pos piece-pos}}))))))
 
 ; draws pairs of checkerboard squares within a row
 ; depending on if row is odd or even.
-(s/defn draw-tuple [row-odd? :- s/Bool
-                    piece :- [(s/one s/Int "position") (s/one s/Keyword "piece-type")]]
+(s/defn draw-tuple [piece :- [(s/one s/Int "position") (s/one s/Keyword "piece-type")]
+                    owner
+                    {:keys [row-odd?] :as opts} :- {:row-odd? s/Bool}]
   (om/component
+   (println "Rendering square pairs with " piece)
    (let [piece-type (name (last piece))
-         piece-pos (first piece)
-         white-square (dom/td #js {:className "white"})
-         green-square (dom/td #js {:className "green"
-                                   :onClick
-                                   (fn [e] (board-click
-                                            piece-pos))}
-                              (om/build draw-piece piece-type))]
-     (apply dom/span nil (if row-odd?
-                           [white-square green-square]
-                           [green-square white-square])))))
+         piece-pos (first piece)]
+     (apply dom/span nil 
+            (om/build-all draw-square
+                          (if row-odd?
+                            ["white" "green"]
+                            ["green" "white"])
+                          {:opts {:piece-pos piece-pos, :piece-type piece-type}})))))
 
 ; given a row, determine if it is an odd or even row
 ; and iterates over the board positions, drawing each
 ; tuple of checkerboard squares
-(s/defn draw-row [cells :- [cell-description]]
+(s/defn draw-row [cells :- [[cell-description]]
+                  owner]
   (om/component
    (let [curr-row (pick-current-row cells)
          row-odd? (odd? curr-row)]
+     (println "Drawing row" curr-row)
      (apply dom/tr nil
-            (om/build-all (partial draw-tuple row-odd?) cells)))))
+            (om/build-all draw-tuple cells {:opts {:row-odd? row-odd?}})))))
 
 ; given a checkerboard data structure, partition into
 ; rows and draw the individual rows
@@ -67,7 +92,7 @@
    (println "Rendering the playing field:\n" (pr-str board))
    (dom/table nil
               (apply dom/tbody nil
-                     (om/build-all draw-row (partition 4 (:playing-field board)))))))
+                     (om/build-all draw-row (vec (partition 4 (:playing-field board))))))))
 
 ; == Bootstrap ============================================
 (defn bootstrap-ui []

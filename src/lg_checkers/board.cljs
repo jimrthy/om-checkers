@@ -233,6 +233,10 @@ Or nil, if the request isn't legal."
 (go (while true
       (let [command (<! board-commands)]
         (print "Command event loop: " command)
+        ;; Q: Is it more idiomatic to update the state this way or using om/transact!
+        ;; A: It seems like it would be really silly to use the
+        ;; View implementation way out here in the business logic side
+        ;; of things.
         (swap! board (partial board-update command)
                (fn [old]
                  (assoc-in old [:playing-field (:position command)]
