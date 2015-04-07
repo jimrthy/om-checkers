@@ -20,35 +20,40 @@
 
 ; draws pairs of checkerboard squares within a row
 ; depending on if row is odd or even.
-(defn draw-tuple [piece row-odd?]
-	(let [piece-type (name (last piece))
-		    piece-pos (first piece)
-        white-square (dom/td #js {:className "white"})
-        green-square (dom/td #js {:className "green"
-                                  :onClick
-                                    (fn [e] (board-click
-                                             piece-pos))}
-                                 (draw-piece piece-type))]
-    (if row-odd?
-      [white-square green-square]
-      [green-square white-square])))
+(defn draw-tuple [piece owner {:keys [row-odd?] :as opts}]
+  (om/component
+   (comment) (println piece "\n" (pr-str opts) "\n" (keys opts))
+   (let [piece-type (name (last piece))
+         piece-pos (first piece)
+         white-square (dom/td #js {:className "white"})
+         green-square (dom/td #js {:className "green"
+                                   :onClick
+                                   (fn [e] (board-click
+                                            piece-pos))}
+                              (draw-piece piece-type))]
+     ;; This seems to be where my invalid checksum warning stems from.
+     ;; It showed up when I converted this to a Component
+     (apply dom/span nil
+            (if row-odd?
+              [white-square green-square]
+              [green-square white-square])))))
 
 ; given a row, determine if it is an odd or even row
 ; and iterates over the board positions, drawing each
 ; tuple of checkerboard squares
-(defn draw-row [row]
-  (let [curr-row (/ (first (last row)) 4)
-        row-odd? (odd? curr-row)]
-    (apply dom/tr nil
-      (mapcat #(draw-tuple % row-odd?)
-           row))))
+(defn draw-row [row owner]
+  (om/component
+   (let [curr-row (/ (first (last row)) 4)
+         row-odd? (odd? curr-row)]
+     (apply dom/tr nil
+            (om/build-all draw-tuple row {:opts {:row-odd? row-odd?}})))))
 
 ; given a checkerboard data structure, partition into
 ; rows and draw the individual rows
 (defn checkerboard [board owner]
   (om/component
    (apply dom/table nil
-      (map draw-row
+      (om/build-all draw-row
            (partition 4 board)))))
 
 ; == Bootstrap ============================================
