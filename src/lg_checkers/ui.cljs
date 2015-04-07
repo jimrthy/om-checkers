@@ -47,9 +47,10 @@
 ; rows and draw the individual rows
 (defn checkerboard [board owner]
   (om/component
+   (println "Setting up the playing field:\n" (pr-str board))
    (apply dom/table nil
       (map draw-row
-           (partition 4 board)))))
+           (partition 4 (:playing-field board))))))
 
 ; == Bootstrap ============================================
 (defn bootstrap-ui []
