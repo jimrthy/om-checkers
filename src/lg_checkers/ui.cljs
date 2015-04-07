@@ -18,7 +18,14 @@
 (s/defn pick-current-row
   "Which row is this sequence of cells describing?"
   [descr :- [cell-description]]
-  (-> descr last first (/ 4)))
+  ;; It's probably a little more efficient to hard-code the width
+  ;; But vectors (which is what we should really be passing
+  ;; into here, if we care about performance) already know
+  ;; their length.
+  ;; More importantly, this makes it easier to debug a
+  ;; subset.
+  (let [width (count descr)]
+    (-> descr last first (/ width))))
 
 ; == UI events ==========================================
 ; when we click a game square, we send an event
@@ -35,22 +42,32 @@
   (om/component
    ;; If I convert this to a span, the pieces don't get
    ;; drawn.
-   (println "Rendering a" piece-type "at " piece-pos)
+   (comment (println "Rendering a" piece-type "at " piece-pos))
    (dom/div #js {:className piece-type :id (str piece-type "-" piece-pos)} nil)))
 
-(s/defn draw-square [color :- (s/enum "white" "green")
+(s/defn draw-square [_
                      owner
-                     {:keys [piece-pos piece-type] :as opts} :- {:piece-pos s/Int
-                                                                 :piece-type s/Str}]
+                     {:keys [color piece-pos piece-type] :as opts} :- {:color (s/enum "white" "green")
+                                                                       :piece-pos s/Int
+                                                                       :piece-type s/Str}]
   (om/component
    (println "Drawing the square at" piece-pos)
    (let [attrs (if (= "green" color)
-                 #js {:className color
-                      :onClick (fn [e]
-                                     (println "DOM click on square " piece-pos)
-                                     (board-click piece-pos)
-                                     (println "Event placed on channel"))}
-                 #js {:className color})]
+                 (do
+                   (comment (println "Have a green square"))
+                   #js {:className color
+                        :onClick (fn [e]
+                                   ;; Note that the event here will be recycled.
+                                   ;; If we were to do anything with it, we'd
+                                   ;; need to extract whichever data we need or
+                                   ;; call its (persist) method before we tried
+                                   ;; to put it on a channel.
+                                   (println "DOM click on square " piece-pos)
+                                   (board-click piece-pos)
+                                   (println "Event placed on channel"))})
+                 (do
+                   (comment (println "Color: " color))
+                   #js {:className color}))]
      (println attrs)
      (dom/td attrs
              (when (= "green" color)
@@ -63,15 +80,17 @@
                     owner
                     {:keys [row-odd?] :as opts} :- {:row-odd? s/Bool}]
   (om/component
-   (println "Rendering square pairs with " piece)
+   (println "Rendering square pairs in draw-tuple with " piece)
    (let [piece-type (name (last piece))
-         piece-pos (first piece)]
-     (apply dom/span nil 
-            (om/build-all draw-square
-                          (if row-odd?
-                            ["white" "green"]
-                            ["green" "white"])
-                          {:opts {:piece-pos piece-pos, :piece-type piece-type}})))))
+         piece-pos (first piece)
+         pair (if row-odd?
+                ["white" "green"]
+                ["green" "white"])]
+     (apply dom/span nil
+            (map #(om/build draw-square
+                            nil 
+                            {:opts {:color % :piece-pos piece-pos, :piece-type piece-type}})
+                 pair)))))
 
 ; given a row, determine if it is an odd or even row
 ; and iterates over the board positions, drawing each
@@ -92,12 +111,15 @@
    (println "Rendering the playing field:\n" (pr-str board))
    (dom/table nil
               (apply dom/tbody nil
-                     (om/build-all draw-row (vec (partition 4 (:playing-field board))))))))
+                     ;; aka (->> board :playing-field (partition 4) (om/build-all draw-row))
+                     ;; I'm honestly torn about which version is more readable,
+                     ;; but this one's probably more idiomatic
+                     (om/build-all draw-row (partition 4 (:playing-field board)))))))
 
 ; == Bootstrap ============================================
 (defn bootstrap-ui []
   (om/root
-    checkerboard ; our UI
+    checkerboard       ; top of Component chain
     board/board        ; our game state
     {:target (. js/document (getElementById "checkers"))}))
 

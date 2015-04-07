@@ -218,32 +218,39 @@ Or nil, if the request isn't legal."
 ;; channel
 
 (go (while true
-      (let [event (<! board-events)]
-        (print "UI event loop: " event)
-        ;; Save all the incoming events to
-        ;; make the playback more realistic
-        (swap! event-stack conj event)
-        (when-let [command (event->command event)]
-          (println "Sending command to update the game")
-          (put! board-commands command)))))
+      (try  ; Protect the loop
+        (let [event (<! board-events)]
+          (print "UI event loop: " event)
+          ;; Save all the incoming events to
+          ;; make the playback more realistic
+          (swap! event-stack conj event)
+          (when-let [command (event->command event)]
+            (println "Sending command to update the game")
+            (put! board-commands command)))
+        (catch :default ex
+          (println ex "\n escaped event translator")))))
 
 ; this concurrent process receives board command messages
 ; and executes on them.  at present, the only thing it does
 ; is sets the desired game position to the desired piece
 (go (while true
-      (let [command (<! board-commands)]
-        (print "Command event loop: " command)
-        ;; Q: Is it more idiomatic to update the state this way or using om/transact!
-        ;; A: It seems like it would be really silly to use the
-        ;; View implementation way out here in the business logic side
-        ;; of things.
-        (swap! board (partial board-update command)
-               (fn [old]
-                 (assoc-in old [:playing-field (:position command)]
-                           (:piece command))))
-        (when (game-over? @board)
-          ;; TODO: Congratulate the winner
-          (reset)))))
+      (try
+        (let [command (<! board-commands)]
+          (print "Command event loop: " command)
+          ;; Q: Is it more idiomatic to update the state this way or using om/transact!
+          ;; A: It seems like it would be really silly to use the
+          ;; View implementation way out here in the business logic side
+          ;; of things.
+          (swap! board (partial board-update command)
+                 (fn [old]
+                   (assoc-in old [:playing-field (:position command)]
+                             (:piece command))))
+          (when (game-over? @board)
+            ;; TODO: Congratulate the winner
+            (reset)))
+        (catch :default ex
+          ;; Protect the loop
+          (println ex "\nEscaped Command handler")))))
 
 ; == Public ===========================================
 

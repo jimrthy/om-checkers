@@ -14,6 +14,8 @@
 
   :source-paths ["src"]
 
+  :figwheel {:nrepl-port 7888}
+
   :cljsbuild {
     :builds [{:id "lg-checkers"
               :source-paths ["src"]
