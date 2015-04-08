@@ -4,6 +4,36 @@
 
 (enable-console-print!)
 
+;;;; == Notes ==============================================
+;;;; Board pieces are defined in the checkers.css file.  The
+;;;; currently defined pieces are:
+;;;;     :red-piece
+;;;;     :black-piece
+;;;;     :prom-red-piece
+;;;;     :prom-black-piece
+;;;;     :empty
+;;;;
+;;;; The board is laid out as a 32 element map, one element
+;;;; for each position.  It is stored in an atom, and bound
+;;;; to the UI.  Any update of the atom will cause an UI
+;;;; refresh to reflect the current board state.
+;;;;
+;;;; core.async is used to implement CSP (Communicating
+;;;; Sequential Proceses), and channels are used to report
+;;;; user interaction events, as well as changing the board
+;;;; state.
+
+;;; == Schema ==========================================
+
+(defmulti event->command
+  "If a synthesized UI event is legal, forward it as a command"
+  (fn [{:keys [event]}]
+    event))
+
+(defmulti handle-command
+  "Do the work"
+  :command)
+
 ;;; == Globals =========================================
 
 ;;; Well, they aren't quite that evil. But they're worth
@@ -13,25 +43,6 @@
                        ;; Has the player selected a piece to
                        ;; move next?
                        :pending-move nil}))
-
-; == Notes ==============================================
-; Board pieces are defined in the checkers.css file.  The
-; currently defined pieces are:
-;     :red-piece
-;     :black-piece
-;     :prom-red-piece
-;     :prom-black-piece
-;     :empty
-;
-; The board is laid out as a 32 element map, one element
-; for each position.  It is stored in an atom, and bound
-; to the UI.  Any update of the atom will cause an UI
-; refresh to reflect the current board state.
-;
-; core.async is used to implement CSP (Communicating
-; Sequential Proceses), and channels are used to report
-; user interaction events, as well as changing the board
-; state.
 
 ; ===Channels ===========================================
 ; the board generates events on this channel
@@ -51,14 +62,17 @@
 ;; TODO: Set up a go loop to feed that to anyone
 ;; who asks.
 ;; It makes a lot more sense than the top level atom that
-;; I'm using now
+;; I'm using now.
+;; Then again, that's actually a fairly tricky proposition.
+;; Well, I could always just loop and put the atom on the
+;; channel, but that almost seems pointless.
 ;; Actually, this seems to be the key to this particular
 ;; design. Have a go-loop in the UI namespace pulling from
 ;; this channel. Anything that updates state here should
 ;; sling those updates here instead of just updating the
 ;; atoms.
 ;; Or maybe that's just over-complicating things. Maybe
-;; this was just a red herring.
+;; this is just a red herring.
 (def board-state (chan))
 
 ;;; == Board State ==========================================
@@ -74,7 +88,7 @@
            (map-indexed (fn [i v] (vector (inc i) v))
                         (flatten
                          [(repeat 12 :red-piece)
-                          (repeat 8 :empty-piece)
+                          (repeat 8 :empty)
                           (repeat 12 :black-piece)]))))))
 
 ;; instantiate our game board state, initializing it
@@ -170,15 +184,11 @@ cache so calls to neighbors should be practically free."
 ;;; translate it into an appropriate Command so it can be
 ;;; forwarded along
 
-;;; == Game Rules ==========================================
-
-(defmulti event->command
-  "If a synthesized UI event is legal, forward it as a command"
-  (fn [{:keys [event]}]
-    event))
-
 (defmethod event->command :board-clicked
   [{:keys [position]}]
+  ;; Since this is really the only event that matters,
+  ;; it's very tempting to just put it under the Game Rules
+  ;; section.
   (println "Board Clicked event handler")
   ;; TODO: error handling
   (let [content (-> board deref (get position))
@@ -193,7 +203,6 @@ cache so calls to neighbors should be practically free."
         my-pieces (if (-> state :rules :blacks-turn?)
                     black-pieces
                     red-pieces)]
-    (comment (println "Got through let block. Valid pieces:" my-pieces))
     (if (some my-pieces [content])
       ;; Player clicked on his own piece.
       ;; This means player wants to move it
@@ -210,17 +219,63 @@ cache so calls to neighbors should be practically free."
           (println "Nowhere to move from"))
         (println "Blocked by" content)))))
 
+;;; == Command Processors =================================
+;;; The things that actually do the work
+
+(defmethod handle-command :swap
+  [{:keys [from position]}]
+  ;; This shares the same flaw as select, except that here
+  ;; it really is fatal. This is screaming "race condition"
+  ;; That's impossible in javascript, of course.
+  ;; Q: isn't it?
+  (let [piece (@board from)]
+    (println "Moving" piece "from" from "to" position)
+    ;;; This version seems to do what I want, but I'm not actually
+    ;;; seeing any changes. Which is why I started down the rabbit
+    ;;; trail of changing everything to components in the UI in the
+    ;;; first place.
+    (swap! game-state #(update-in % [:blacks-turn?] not))
+    (swap! game-state #(update-in % [:pending-move] (constantly nil)))
+    (swap! board (fn [old]
+                   (assoc old
+                          position piece
+                          from :empty)))))
+
+(defmethod handle-command :select
+  [{:keys [position]}]
+  ;; This is really why game state needs to be in the same atom
+  ;; as the playing field. I need to update them both so I can
+  ;; add a visual indicator about what was just clicked, and
+  ;; refs aren't an option.
+  ;; TODO: Get that working.
+  (println "Piece selected")
+  (swap! game-state (fn [old]
+                      (assoc old :pending-move position))))
+
+(defmethod handle-command :default
+  [command]
+  (println "Unhandled command:\n" command))
+
+;;; == Game Rules ==========================================
+
 (defn lost?
   "If the board doesn't contain any tiles from this player, he lost the game"
   [board tile-set]
-  (when-not (some board tile-set)
+  (when-not (some (-> board vals set) tile-set)
     true))
 
 (defn check-for-winner [board]
   ;; TODO: Desperately need to check for scenario where
   ;; current player has no legal moves left
-  (cond (lost? board red-pieces) :black
-        (lost? board black-pieces) :red))
+  (println "Checking for winner")
+  (try
+   (let [result (cond (lost? board red-pieces) :black
+                      (lost? board black-pieces) :red
+                      :else nil)]
+     (println "Winner: " result)
+     result)
+   (catch :default e
+       (println "Searching for winner failed: " e))))
 
 ;;; == Fun! ================================================
 
@@ -272,17 +327,18 @@ TODO: Do something fun with the remaining pieces"
       (try
         (let [command (<! board-commands)]
           (println "Incoming command:" command)
-          (throw (ex-info "Not Implemented" {:problem "This is now broken"}))
-          (swap! board assoc (:position command)
-                 (:piece command))
+          (handle-command command)
+          (println "Command handled")
           (when-let [winner (check-for-winner @board)]
             (victory-dance winner)
-            (reset)))
+            (reset))
+          (println "End-game tested"))        
         (catch js/TypeError ex
           (println (pr-str ex "\nType Error...this is fun!")))
         (catch :default ex
           (println "Unhandled Command Exception\n" (pr-str ex)))
         (catch js/Object ex
+          ;; Even this doesn't seem to be catching everything
           (println "Seriously Unhandled Command Exception:\n" (pr-str ex))))))
 
 ;; As a compromise (see comments around the function we're calling),
@@ -290,6 +346,8 @@ TODO: Do something fun with the remaining pieces"
 ;; background.
 ;; TODO: Stuff this into a defonce so I don't get distracted by the
 ;; output every time I save.
+;; Q: Should this be using async/thread instead?
+;; TODO: Experiment and see how that works in clojurescript
 (go
   ;; Don't want the lazy seq to be discarded without actually doing anything
   ;; This is a cheesy way to handle that
