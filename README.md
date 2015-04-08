@@ -1,3 +1,7 @@
+TODO: Go back to building up from here. Figure out what the real deal is with my Om issues.
+
+They aren't the point to this challenge, though. So, for now, abandon this approach.
+
 The Challenge: Lookingglass Checkers
 ====================================
 
