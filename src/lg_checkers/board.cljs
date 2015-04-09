@@ -94,6 +94,7 @@
 
 ;; instantiate our game board state, initializing it
 ;;  with starting pieces
+;; TODO: Both of these need to be created using defonce!!
 (def board (create-board))
 (def event-stack (atom []))
 
