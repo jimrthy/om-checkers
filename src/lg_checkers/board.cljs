@@ -1,6 +1,7 @@
 (ns lg-checkers.board
   (:require-macros [cljs.core.async.macros :refer [go]])
-  (:require [cljs.core.async :refer [put! chan <!]]))
+  (:require [cljs.core.async :refer [put! chan <!]]
+            [om.core :as om]))
 
 (enable-console-print!)
 
@@ -185,13 +186,22 @@ cache so calls to neighbors should be practically free."
 ;;; forwarded along
 
 (defmethod event->command :board-clicked
-  [{:keys [position]}]
+  [{:keys [#_position piece] :as ev}]
   ;; Since this is really the only event that matters,
   ;; it's very tempting to just put it under the Game Rules
   ;; section.
-  (println "Board Clicked event handler")
+
+  ;; piece should actually be a cursor that om can transact!
+  ;; on so we don't have to re-render the board every time.
+  ;; Mixing concerns of the view down into the business logic
+  ;; here seems like a code smell...but the alternatives I've
+  ;; been trying don't work correctly.
+  (println "Board Clicked event handler:" ev)
   ;; TODO: error handling
-  (let [content (-> board deref (get position))
+  (let [position (first piece)
+        expected-type (last piece)
+        content (-> board deref (get position))
+        _ (assert (= expected-type content))
         state {:playing-field @board
                :rules @game-state}
         ;; It seems counter-intuitive to deref the game-state
@@ -207,15 +217,17 @@ cache so calls to neighbors should be practically free."
       ;; Player clicked on his own piece.
       ;; This means player wants to move it
       {:command :select
-       :position position}
+       #_ (comment :position position)
+       :piece piece}
       (if (= :empty content)
-        (if-let [moving-from (-> state :rules :pending-move)]
+        (if-let [piece-to-move (-> state :rules :pending-move)]
           (do
-            (println "Moving from" moving-from "to" position "...maybe")
+            (println "Moving from" #_moving-from piece-to-move "to" position "...maybe")
             ;; TODO: Verify that this is a legal switch
             {:command :swap
-             :position position
-             :from moving-from})
+             #_ (comment :position position)
+             :moving piece-to-move
+             :to piece})
           (println "Nowhere to move from"))
         (println "Blocked by" content)))))
 
@@ -223,26 +235,29 @@ cache so calls to neighbors should be practically free."
 ;;; The things that actually do the work
 
 (defmethod handle-command :swap
-  [{:keys [from position]}]
+  [{:keys [moving #_[from position] to]}]
   ;; This shares the same flaw as select, except that here
   ;; it really is fatal. This is screaming "race condition"
   ;; That's impossible in javascript, of course.
   ;; Q: isn't it?
-  (let [piece (@board from)]
-    (println "Moving" piece "from" from "to" position)
+  (let [#_[piece (@board from)]
+        kind (last moving)]
+    (println "Moving" #_piece moving "from" #_from moving "to" #_position to)
     ;;; This version seems to do what I want, but I'm not actually
     ;;; seeing any changes. Which is why I started down the rabbit
     ;;; trail of changing everything to components in the UI in the
     ;;; first place.
     (swap! game-state #(update-in % [:blacks-turn?] not))
     (swap! game-state #(update-in % [:pending-move] (constantly nil)))
-    (swap! board (fn [old]
-                   (assoc old
-                          position piece
-                          from :empty)))))
+    (comment (swap! board (fn [old]
+                            (assoc old
+                                   position piece
+                                   from :empty))))
+    (om/update! moving 1 :empty)
+    (om/update! to 1 kind)))
 
 (defmethod handle-command :select
-  [{:keys [position]}]
+  [{:keys [#_position piece]}]
   ;; This is really why game state needs to be in the same atom
   ;; as the playing field. I need to update them both so I can
   ;; add a visual indicator about what was just clicked, and
@@ -250,7 +265,7 @@ cache so calls to neighbors should be practically free."
   ;; TODO: Get that working.
   (println "Piece selected")
   (swap! game-state (fn [old]
-                      (assoc old :pending-move position))))
+                      (assoc old :pending-move #_position piece))))
 
 (defmethod handle-command :default
   [command]

@@ -9,12 +9,16 @@
 
 ; == UI events ==========================================
 ; when we click a game square, we send an event
-(defn board-click [board-pos]
+(defn board-click [#_board-pos piece]
   (put! board-events {:event :board-clicked
-                      :position board-pos}))
+                      #_ (comment :position board-pos)
+                      :piece piece}))
 
 ; == Board UI Drawing ===================================
 ; draw pieces based on the piece-type
+(defn component-piece [piece-type owner]
+  (om/component
+   (apply dom/div #js {:className piece-type} nil)))
 (defn draw-piece [piece-type]
   (apply dom/div #js {:className piece-type} nil))
 
@@ -22,7 +26,7 @@
 ; depending on if row is odd or even.
 (defn draw-tuple [piece owner {:keys [row-odd?] :as opts}]
   (om/component
-   (comment (println piece "\n" (pr-str opts) "\n" (keys opts)))
+   (comment) (println piece "\n" (pr-str opts) "\n" (keys opts))
    (let [piece-type (name (last piece))
          piece-pos (first piece)
          white-square (dom/td #js {:className "white" :id (str "white-" piece-pos)})
@@ -30,9 +34,9 @@
                                    :onClick
                                    (fn [e]
                                      (println "Clicked on a" piece-type "at" piece-pos)
-                                     (board-click
-                                            piece-pos))}
-                              (draw-piece piece-type))]
+                                     (board-click #_piece-pos piece))}
+                              #_(draw-piece piece-type)
+                              (om/build component-piece piece-type))]
      ;; This seems to be where my invalid checksum warning stems from.
      ;; It showed up when I converted this to a Component
      (apply dom/span nil
@@ -64,8 +68,8 @@
    (let [curr-row (/ (first (last row)) 4)
          row-odd? (odd? curr-row)]
      (apply dom/tr nil
-            #_(om/build-all draw-tuple row {:opts {:row-odd? row-odd?}})
-            (mapcat #(draw-tuple-old % {:row-odd? row-odd?}) row)))))
+            (om/build-all draw-tuple row {:opts {:row-odd? row-odd?}})
+            #_(mapcat #(draw-tuple-old % {:row-odd? row-odd?}) row)))))
 
 ; given a checkerboard data structure, partition into
 ; rows and draw the individual rows
