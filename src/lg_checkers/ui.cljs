@@ -114,7 +114,7 @@
                      ;; aka (->> board :playing-field (partition 4) (om/build-all draw-row))
                      ;; I'm honestly torn about which version is more readable,
                      ;; but this one's probably more idiomatic
-                     (om/build-all draw-row (partition 4 (:playing-field board)))))))
+                     (om/build-all draw-row (:playing-field board))))))
 
 ; == Bootstrap ============================================
 (defn bootstrap-ui []

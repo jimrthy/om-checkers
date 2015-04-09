@@ -22,7 +22,7 @@
 ; for each position.  It is stored in an atom, and bound
 ; to the UI.  Any update of the atom will cause an UI
 ; refresh to reflect the current board state.
-(def board-repr {:playing-field {s/Int pieces}
+(def board-repr {:playing-field #_{s/Int pieces} [[pieces]]
                  :blacks-turn? s/Bool})
 
 ;;; Another namespace is responsible for converting DOM
@@ -59,23 +59,25 @@
 (def bottom-row 8)
 
 ; == Board State ==========================================
-; initialize a board, where positions are indexed 1-32.
-; each position is an atom containing the symbol of the
-; piece in it.
-(s/defn create-board :- board-repr []
-  (atom
-   {:playing-field (apply sorted-map
-                          (flatten
-                           (map-indexed (fn [i v] (vector (inc i) v))
-                                        (flatten
-                                         [(repeat 12 :red-piece)
-                                          (repeat 8 :empty-piece)
-                                          (repeat 12 :black-piece)]))))
-    :blacks-turn? true
-    ;; When a player clicks on his piece, it's the first half
-    ;; of moving it. Keep track of which piece they've told
-    ;; us they want to move here
-    :piece-to-move nil}))
+(s/defn create-board :- board-repr
+  "Set up the beginning of the game"
+  []
+  {:playing-field #_(apply sorted-map
+                           (flatten
+                            (map-indexed (fn [i v] (vector (inc i) v))
+                                         (flatten
+                                          [(repeat 12 :red-piece)
+                                           (repeat 8 :empty-piece)
+                                           (repeat 12 :black-piece)]))))
+   (mapv #(mapv vector %)
+         (concat (repeat 12 :red-piece) (repeat 8 :empty-piece) (repeat 12 :black-piece)))
+   
+   :blacks-turn? true
+
+   ;; When a player clicks on his piece, it's the first half
+   ;; of moving it. Keep track of which piece they've told
+   ;; us they want to move here
+   :piece-to-move nil})
 
 (defn reset
   "Start over with a clean slate"
@@ -155,8 +157,18 @@
 ;; For that matter, it might be best to do something
 ;; like this as a macro that expands to a
 ;; hashmap that we can look up directly.
-(compute-neighbor-positions)
+;; For now, just run this in a background thread
+(go
+  ;; print it to avoid the lazy sequence from being
+  ;; discarded
+  ;; TODO: Do this inside something like a defonce
+  ;; instead so I don't have to look at it every time
+  ;; through the loop.
+  ;; TODO: Research using anync/thread in clojurescript.
+  (println (compute-neighbor-positions)))
 
+;;; These next approaches are wrong.
+;;; TODO: Pull these from my rebuild branch instead
 (s/defn red-event->command :- (s/maybe command-event)
   [game-state
    ev :- request-event]
@@ -205,11 +217,21 @@ Or nil, if the request isn't legal."
 
 ; == Concurrent Processes =================================
 
-; the board receives commands to manipulate its state
-;     {:command :command-symbol
-;      :position <integer>
-;      :piece :piece-symbol}
-
+;; the board receives commands to manipulate its state
+;;     {:command :command-symbol
+;;      :position <integer>
+;;      :piece :piece-symbol}
+;; I'm torn about this specific architecture.
+;; On one hand, this *really* seems like something
+;; that should be created during IWillMount as part of the
+;; Om lifecycle, and then closed in IWillUnmount.
+;; OTOH...mixing View and Model is a fairly
+;; ugly code smell.
+;; I know that's the basic premise behind react.js: we're
+;; doing the presentation layer here. The entire point is
+;; to make things pretty, since all the real business logic
+;; has to happen on the back-end anyway.
+;; TODO: Top-level defs are evil. Make them go away.
 (def board-commands (chan))
 
 ;; this concurrent process reacts to board click events --
