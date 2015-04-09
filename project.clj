@@ -12,6 +12,8 @@
   :plugins [[lein-cljsbuild "1.0.4"]
             [lein-figwheel "0.2.5"]]
 
+  :profiles {:dev {:source-paths ["dev"]}}
+
   :source-paths ["src"]
 
   :figwheel {:nrepl-port 7888}
