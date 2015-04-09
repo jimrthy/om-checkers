@@ -16,37 +16,33 @@
 ;; Just so we have a handle on the available options
 (def legal-colors (s/enum "green" "white"))
 
-(def square-description {:row s/Int
-                         :column s/Int
-                         ;; This is a vector so it can be used as a
-                         ;; cursor
-                         :content [(s/one board/pieces "content")]})
-(def colored-square (assoc square-description :color legal-colors))
-
 (def row-description {:row s/Int
                       :content board/pieces})
 
+(def colored-square (assoc board/square-description :color legal-colors))
+
 ; == Internals ==========================================
 
-(s/defn pick-current-row
-  "Which row is this sequence of cells describing?"
-  [descr :- [square-description]]
-  (throw (ex-info "Obsolete" {:description descr}))
-  ;; It's probably a little more efficient to hard-code the width
-  ;; But vectors (which is what we should really be passing
-  ;; into here, if we care about performance) already know
-  ;; their length.
-  ;; More importantly, this makes it easier to debug a
-  ;; subset.
-  (let [width (count descr)]
-    (-> descr last first (/ width))))
+(comment (s/defn pick-current-row
+           "Which row is this sequence of cells describing?"
+           [descr :- [board/square-description]]
+           (throw (ex-info "Obsolete" {:description descr}))
+           ;; It's probably a little more efficient to hard-code the width
+           ;; But vectors (which is what we should really be passing
+           ;; into here, if we care about performance) already know
+           ;; their length.
+           ;; More importantly, this makes it easier to debug a
+           ;; subset.
+           (let [width (count descr)]
+             (-> descr last first (/ width)))))
 
 ; == UI events ==========================================
 ; when we click a game square, we send an event
-(defn board-click [event-channel square]
+(s/defn board-click :- s/Bool
+  [event-channel square :- colored-square]
   (println "board-click: forwarding DOM click")
-  (put! event-channel {:event :board-clicked
-                       :position square}))
+  (>! event-channel {:event :board-clicked
+                     :square square}))
 
 ; == Board UI Drawing ===================================
 ; draw pieces based on the piece-type
@@ -92,7 +88,7 @@
 
 ; draws pairs of checkerboard squares within a row
 ; depending on if row is odd or even.
-(s/defn draw-tuple [square :- square-description
+(s/defn draw-tuple [square :- board/square-description
                     owner]
   (om/component
    (println "Rendering square pairs in draw-tuple with " square)
@@ -155,7 +151,7 @@
                 (try  ; Protect the loop
                   (println "UI event loop: " event)
                   (when-let [command (board/event->command board event)]
-                    (println "Sending command to update the game")
+                    (println "Legal command for updating the game")
                     (>! board-commands command))
                   (catch :default ex
                     (println ex "\n escaped event translator")))
@@ -169,8 +165,12 @@
               (when command
                 (try
                   (print "Command event loop: " command)
-
-                  (om/transact! board (partial board/board-update command))
+                  (om/transact! board
+                                (fn [old]
+                                  (let [next (board/handle-command command old)]
+                                    ;; This isn't as wasteful as it might seem at
+                                    ;; first glance because of shared immutable state
+                                    (update-in next [:event-stack] conj next))))
                   (catch :default ex
                     ;; Protect the loop
                     (println ex "\nEscaped Command handler")))
@@ -203,8 +203,7 @@
 
 ; == Bootstrap ============================================
 (defn bootstrap-ui [board]
-  (let [
-        root (om/root
+  (let [root (om/root
               checkerboard       ; top of Component chain
               board              ; our game state
               {:target (. js/document (getElementById "checkers"))

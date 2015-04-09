@@ -14,47 +14,65 @@
 ; == Schema ==================================================
 
 ;; These map to entries in checkers.css
+;; TODO: Add entries for selected piece and legal moves
+;; so we can highlight a player's options
 (def pieces (s/enum :empty
                     :black-piece
                     :prom-black-piece
                     :red-piece
                     :prom-red-piece))
+(def black-pieces (s/enum :black-piece :prom-black-piece))
+(def red-pieces (s/enum :red-piece :prom-red-piece))
 
-; The board is laid out as a 32 element map, one element
-; for each position.  It is stored in an atom, and bound
-; to the UI.  Any update of the atom will cause an UI
-; refresh to reflect the current board state.
-(def board-repr {:playing-field [[pieces]]
-                 :blacks-turn? s/Bool})
+(def square-description {:row s/Int
+                         :column s/Int
+                         ;; This is a vector so it can be used as a
+                         ;; cursor
+                         :content [(s/one pieces "content")]})
 
-;;; Another namespace is responsible for converting DOM
+;;; The ui namespace is responsible for converting DOM
 ;;; (real or simulated) events into request-events
 (def input-events (s/enum :board-clicked))
-(def request-event {:event input-events
-                    :position s/Int})
+(def position {:row s/Int
+               :column s/Int})
+(def request-event (merge position {:event input-events}))
+
 ;;; It's our responsibility to translate those into
 ;;; command-events and cope with them (legal or not)
-(def legal-commands (s/enum :update-board-position))
+(def legal-commands (s/enum :select :swap))
 (def command-event {:command legal-commands
-                    :position s/Int
-                    :piece pieces})
+                    s/Any s/Any})
+(def swap-command (merge command-event {:from position
+                                        :to position
+                                        :command (s/one :swap "Swap")}))
+(def select-command (merge command-event {:at square-description
+                                          :command (s/one :select "Select")}))
 
-(defmulti board-update
-  "Return the appropriate new state of the board after applying command"
-  (fn [command old-board-state]
+;;; The board is laid out as a 2-d vector<vector<pieces> >
+;;; It is stored in an atom, and bound
+;;; to the UI.  Any update of the atom will cause an UI
+;;; refresh to reflect the current board state.
+;;; We're also storing game state under the poorly chosen
+;;; :rules key. TODO: Rename it
+;;; :state-stack stores the sequence of states we have gone
+;;; through so they can be played back later.
+(def board-repr {:playing-field [[pieces]]
+                 :rules {:blacks-turn? s/Bool
+                         :pending-move square-description}
+                 :state-stack []})
+
+(defmulti event->command
+  "If a synthesized UI event is legal, forward it as a command"
+  (fn [game-state {:keys [event]}]
+    event))
+
+(defmulti handle-command
+  "Return the appropriate new state of the board after applying command
+i.e. Do the actual work"
+  (fn [board command]
     (:command command)))
 
-;; This will get defined in the system constructor
-(declare reset)
-
 ;;; == Internals ==============================================
-
-(def event-stack
-  "Track event history
-
-Top-level defs are bad.
-TODO: Hide this elsewhere."
-  (atom []))
 
 ; === Utility Functions =================================
 
@@ -62,19 +80,12 @@ TODO: Hide this elsewhere."
 (def top-row 1)
 (def bottom-row 8)
 
-; == Board State ==========================================
-(s/defn clean-slate :- board-repr
-  "Set up the beginning of the game"
-  []
-  {:playing-field (mapv #(mapv vector %)
-                        (partition 4 (concat (repeat 12 :red-piece) (repeat 8 :empty-piece) (repeat 12 :black-piece))))
-   
-   :blacks-turn? true
+(s/defn get-piece-at :- pieces
+  [state :- board-repr
+   at :- position]
+  (-> state (get (:row at)) (get (:column at))))
 
-   ;; When a player clicks on his piece, it's the first half
-   ;; of moving it. Keep track of which piece they've told
-   ;; us they want to move here
-   :piece-to-move nil})
+; == Board State ==========================================
 
 (s/defn game-over? :- s/Bool
   [game-state]
@@ -85,18 +96,18 @@ TODO: Hide this elsewhere."
                     (= :prom-black-piece %)) contents)
          (some #(or (= :red-piece %) (= :prom-red-piece %)) contents))))
 
-(defmethod board-update :move
-  [cmd current]
-  (let [updated nil]
-    (throw (ex-info "Not Implemented" {:problem "Get this written"}))
-    (when (game-over? updated)
-      ;; TODO: Congratulate the winner
-      (reset))
-    updated))
+(comment (defmethod board-update :move
+           [cmd current]
+           (let [updated nil]
+             (throw (ex-info "Not Implemented" {:problem "Get this written"}))
+             (when (game-over? updated)
+               ;; TODO: Congratulate the winner
+               (reset))
+             updated))
 
-(defmethod board-update :select
-  [cmd current]
-  (throw (ex-info "Not Implemented" {:problem "Get this written"})))
+         (defmethod board-update :select
+           [cmd current]
+           (throw (ex-info "Not Implemented" {:problem "Get this written"}))))
 
 (s/defn compute-pos-neighbors :- [s/Int]
   "given a board position, return the position of neighbors
@@ -149,62 +160,136 @@ Mainly for the sake of getting the memoization primed"
   (map (fn [pos] {pos (neighbor-pos pos)})
        (range 1 33)))
 
-;;; These next approaches are wrong.
-;;; TODO: Pull these from my rebuild branch instead
-(s/defn red-event->command :- (s/maybe command-event)
-  [game-state
-   ev :- request-event]
-  (println "It's red's turn")
-  (throw (ex-info "Not Implemented"
-                  {:problem "This would almost be a direct copy/paste from the black event version"})))
+;;; ==  Event Translators ==================================
 
-(comment (def board-commands (chan)))
-(comment (def board-events (chan)))
-(comment (def board-state (chan)))
-(comment (def board (create-board)))
+(s/defn build-select-command :- select-command
+  [square :- square-description]
+  {:command :select
+   :square square})
 
-(s/defn black-event->command :- (s/maybe command-event)
-  [game-state ev :- request-event]
+(s/defn build-swap-command :- swap-command
+  [from :- square-description
+   to :- square-description]
+  (println "Moving from (" (:column from)
+           "," (:row from) ") to ("
+           (:column to) "," (:row to) ")...maybe")
+  ;; TODO: Verify that this is a legal switch
+  {:command :swap
+   :from from
+   :to to})
+
+;;; == Public ================================================
+
+(comment (s/defmethod event->command :board-clicked
+           :- (s/maybe command-event)
+           [game-state :- board-repr
+            ev :- request-event]
+           (comment "Translate an incoming request into an outgoing command.
+Or nil, if the request isn't legal.")
+           (println "Applying business rules to the event")
+           ;; Save all the incoming events to
+           ;; make the playback more realistic
+           (comment (swap! event-stack conj ev))
+
+           (if (:blacks-turn? game-state)
+             (black-event->command game-state ev)
+             (red-event->command game-state ev))))
+
+;;; An event/request made it to the queue. If the request is legal,
+;;; translate it into an appropriate Command so it can be
+;;; forwarded along
+
+;; Since this is really the only event that matters,
+;; it's very tempting to just put it under the Game Rules
+;; section.
+;; Actually, it shouldn't even be a multimethod.
+;; Oh well.
+(s/defmethod event->command
+  :board-clicked
+   :- (merge command-event
+             {s/Any s/Any})
+  [state :- board-repr
+   {:keys [square] :as ev} :- {:square square-description
+                               s/Any s/Any}]
   ;; Will potentially return things like
   #_{:command :update-board-position
      :position (:position event)
      :piece :black-piece}
-  (println "Black's move:\n" (pr-str ev) "\non\n" (pr-str game-state))
-  (let [result
-        (let [cell-index (:position ev)]
-          (println "Where's our playing field?")
-          (let [playing-field (:playing-field game-state)]
-            (println "What's in cell " cell-index "where the click happened?")
-            (let [clicked-contents (playing-field cell-index)]
-              (println "Clicked on" (pr-str clicked-contents) "\nIs this the second half of an attempted move?")
-              (let [starting-index (:piece-to-move game-state)]
-                (println "Analyzing move")
-                (cond (and starting-index
-                           (= clicked-contents :empty))
-                      {:command :move
-                       :from starting-index
-                       :to cell-index}
-                      (or (= clicked-contents :black-piece)
-                          (= clicked-contents :prom-black-piece))
-                      {:command :select
-                       :at cell-index}
-                      :else (println "Illegal event attempted"))))))]
-    (println "event->command => " (pr-str result))
-    result))
 
-;;; == Public ================================================
+  ;; piece should actually be a cursor that om can transact!
+  ;; on so we don't have to re-render the board every time.
+  ;; Mixing concerns of the view down into the business logic
+  ;; here seems like a code smell...but the alternatives I've
+  ;; been trying don't work correctly.
+  (println "Board Clicked event handler:" ev)
+  ;; TODO: error handling
+  (let [row (:row square)
+        column (:column square)
+        expected-type (:content square)
+        content (-> state :playing-field (get row) (get column))
+        _ (assert (= expected-type content))
+        my-pieces (if (-> state :rules :blacks-turn?)
+                    black-pieces
+                    red-pieces)]
+    (if (some my-pieces [content])
+      ;; Player clicked on his own piece.
+      ;; This means player wants to move it
+      (build-select-command square)
+      (if (= :empty content)
+        (if-let [piece-to-move (-> state :rules :pending-move)]
+          (build-swap-command piece-to-move square)
+          (println "Nowhere to move from"))
+        (println "Blocked by" content)))))
 
-(s/defn event->command :- (s/maybe command-event)
-  "Translate an incoming request into an outgoing command.
-Or nil, if the request isn't legal."
-  [game-state :- board-repr
-   ev :- request-event]
-  (println "Applying business rules to the event")
-  ;; Save all the incoming events to
-  ;; make the playback more realistic
-  (swap! event-stack conj ev)
+;;; == Command Processors =================================
+;;; The things that actually do the work
 
-  (if (:blacks-turn? game-state)
-    (black-event->command game-state ev)
-    (red-event->command game-state ev)))
+(s/defn clean-slate :- board-repr
+  "Set up the beginning of the game"
+  []
+  {:playing-field (mapv #(mapv vector %)
+                        (partition 4 (concat (repeat 12 :red-piece) (repeat 8 :empty-piece) (repeat 12 :black-piece))))
+   
+   :blacks-turn? true
+
+   ;; When a player clicks on his piece, it's the first half
+   ;; of moving it. Keep track of which piece they've told
+   ;; us they want to move here
+   :piece-to-move nil})
+
+(s/defmethod handle-command :swap :- board-repr
+  [state :- board-repr
+   {:keys [from to]} :- swap-command]
+  (let [kind (get-piece-at state from)]
+    (println "Moving" kind "from" from "to" to)
+    ;;; This version seems to do what I want, but I'm not actually
+    ;;; seeing any changes. Which is why I started down the rabbit
+    ;;; trail of changing everything to components in the UI in the
+    ;;; first place.
+    (let [result (-> state
+                     (update-in [:rules :blacks-turn?] not)
+                     (assoc-in [:rules :pending-move] nil)
+                     (assoc-in [:playing-field (:row from) (:column from)] :empty)
+                     (assoc-in [:playing-field (:row to) (:column to)] kind))]
+      (if-let [winner (game-over? result)]
+        (do (println "Congratulations" winner)
+            ;; TODO: Add a fancy animation to congratulate the winner
+            (clean-slate))
+        result))))
+
+(s/defmethod handle-command :select :- board-repr
+  [state :- board-repr
+   {:keys [at]}]
+  ;; This is really why game state needs to be in the same atom
+  ;; as the playing field. I need to update them both so I can
+  ;; add a visual indicator about what was just clicked, and
+  ;; refs aren't an option.
+  ;; TODO: Get that working.
+  (println at "selected")
+  (assoc-in state [:rules :pending-move] at))
+
+(defmethod handle-command :default
+  [command]
+  (println "Unhandled command:\n" command))
+
 
