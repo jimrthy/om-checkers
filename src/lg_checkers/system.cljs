@@ -10,7 +10,7 @@
 
 (defn ctor
   []
-  (let [game-state (atom board/clean-slate)
+  (let [game-state (atom (board/clean-slate))
         om-root (ui/bootstrap-ui game-state)]
     ;; Make sure the memoization happens
     ;; Q:  Is it worth delaying startup to get these

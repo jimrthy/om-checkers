@@ -6,6 +6,6 @@
 (fw/start {:on-jsload (fn []
                         ;; This is what kicks off the magic
                         (system/ctor)
-                        (print "reloaded"))})
+                        (print "System started successfully"))})
 
 

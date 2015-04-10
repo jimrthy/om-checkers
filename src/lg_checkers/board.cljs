@@ -10,7 +10,7 @@
 ;;;; state.
 
 (enable-console-print!)
-
+(println "Mark A")
 ; == Schema ==================================================
 
 ;; These map to entries in checkers.css
@@ -96,19 +96,6 @@ i.e. Do the actual work"
                     (= :prom-black-piece %)) contents)
          (some #(or (= :red-piece %) (= :prom-red-piece %)) contents))))
 
-(comment (defmethod board-update :move
-           [cmd current]
-           (let [updated nil]
-             (throw (ex-info "Not Implemented" {:problem "Get this written"}))
-             (when (game-over? updated)
-               ;; TODO: Congratulate the winner
-               (reset))
-             updated))
-
-         (defmethod board-update :select
-           [cmd current]
-           (throw (ex-info "Not Implemented" {:problem "Get this written"}))))
-
 (s/defn compute-pos-neighbors :- [s/Int]
   "given a board position, return the position of neighbors
 
@@ -147,6 +134,7 @@ And very tied in to the original representation as a flat vector.
                      down-left)
                    (if (not right-edge?)
                      down-right)]))]))))
+(println "Mark M")
 
 (def neighbor-pos
   "Memoized version of compute-pos-neighbors"
@@ -161,13 +149,20 @@ Mainly for the sake of getting the memoization primed"
        (range 1 33)))
 
 ;;; ==  Event Translators ==================================
+(println "Mark N")
 
-(s/defn build-select-command :- select-command
+;;; I'd like to specify the exact return values for
+;;; the next 2 (select-command and swap-command
+;;; respectively), but I'm getting errors about
+;;; missing Schema.walker protocols for [object Object]
+;;; TODO: Figure out why
+(s/defn build-select-command :- command-event
   [square :- square-description]
   {:command :select
    :square square})
+(println "Mark O")
 
-(s/defn build-swap-command :- swap-command
+(s/defn build-swap-command :- command-event
   [from :- square-description
    to :- square-description]
   (println "Moving from (" (:column from)
@@ -179,22 +174,7 @@ Mainly for the sake of getting the memoization primed"
    :to to})
 
 ;;; == Public ================================================
-
-(comment (s/defmethod event->command :board-clicked
-           :- (s/maybe command-event)
-           [game-state :- board-repr
-            ev :- request-event]
-           (comment "Translate an incoming request into an outgoing command.
-Or nil, if the request isn't legal.")
-           (println "Applying business rules to the event")
-           ;; Save all the incoming events to
-           ;; make the playback more realistic
-           (comment (swap! event-stack conj ev))
-
-           (if (:blacks-turn? game-state)
-             (black-event->command game-state ev)
-             (red-event->command game-state ev))))
-
+(println "Mark S")
 ;;; An event/request made it to the queue. If the request is legal,
 ;;; translate it into an appropriate Command so it can be
 ;;; forwarded along
@@ -240,6 +220,7 @@ Or nil, if the request isn't legal.")
           (build-swap-command piece-to-move square)
           (println "Nowhere to move from"))
         (println "Blocked by" content)))))
+(println "Mark T")
 
 ;;; == Command Processors =================================
 ;;; The things that actually do the work
@@ -248,7 +229,9 @@ Or nil, if the request isn't legal.")
   "Set up the beginning of the game"
   []
   {:playing-field (mapv #(mapv vector %)
-                        (partition 4 (concat (repeat 12 :red-piece) (repeat 8 :empty-piece) (repeat 12 :black-piece))))
+                        (partition 4 (concat (repeat 12 [:red-piece])
+                                             (repeat 8 [:empty-piece])
+                                             (repeat 12 [:black-piece]))))
    
    :blacks-turn? true
 
@@ -256,10 +239,11 @@ Or nil, if the request isn't legal.")
    ;; of moving it. Keep track of which piece they've told
    ;; us they want to move here
    :piece-to-move nil})
+(println "Mark U")
 
 (s/defmethod handle-command :swap :- board-repr
   [state :- board-repr
-   {:keys [from to]} :- swap-command]
+   {:keys [from to]} #_[:- swap-command]]
   (let [kind (get-piece-at state from)]
     (println "Moving" kind "from" from "to" to)
     ;;; This version seems to do what I want, but I'm not actually
@@ -291,5 +275,4 @@ Or nil, if the request isn't legal.")
 (defmethod handle-command :default
   [command]
   (println "Unhandled command:\n" command))
-
-
+(println "Mark Z")
