@@ -10,7 +10,7 @@
 ;;;; state.
 
 (enable-console-print!)
-(println "Mark A")
+
 ; == Schema ==================================================
 
 ;; These map to entries in checkers.css
@@ -134,7 +134,6 @@ And very tied in to the original representation as a flat vector.
                      down-left)
                    (if (not right-edge?)
                      down-right)]))]))))
-(println "Mark M")
 
 (def neighbor-pos
   "Memoized version of compute-pos-neighbors"
@@ -149,7 +148,6 @@ Mainly for the sake of getting the memoization primed"
        (range 1 33)))
 
 ;;; ==  Event Translators ==================================
-(println "Mark N")
 
 ;;; I'd like to specify the exact return values for
 ;;; the next 2 (select-command and swap-command
@@ -160,7 +158,6 @@ Mainly for the sake of getting the memoization primed"
   [square :- square-description]
   {:command :select
    :square square})
-(println "Mark O")
 
 (s/defn build-swap-command :- command-event
   [from :- square-description
@@ -174,7 +171,7 @@ Mainly for the sake of getting the memoization primed"
    :to to})
 
 ;;; == Public ================================================
-(println "Mark S")
+
 ;;; An event/request made it to the queue. If the request is legal,
 ;;; translate it into an appropriate Command so it can be
 ;;; forwarded along
@@ -220,7 +217,6 @@ Mainly for the sake of getting the memoization primed"
           (build-swap-command piece-to-move square)
           (println "Nowhere to move from"))
         (println "Blocked by" content)))))
-(println "Mark T")
 
 ;;; == Command Processors =================================
 ;;; The things that actually do the work
@@ -239,7 +235,6 @@ Mainly for the sake of getting the memoization primed"
    ;; of moving it. Keep track of which piece they've told
    ;; us they want to move here
    :piece-to-move nil})
-(println "Mark U")
 
 (s/defmethod handle-command :swap :- board-repr
   [state :- board-repr
@@ -275,4 +270,4 @@ Mainly for the sake of getting the memoization primed"
 (defmethod handle-command :default
   [command]
   (println "Unhandled command:\n" command))
-(println "Mark Z")
+
