@@ -93,7 +93,6 @@ TODO: Research that."
    owner
    {:keys [board-events] :as opts}]
   (om/component
-   (comment)
    (let [base-attrs {:className color}
          clj-attrs (if (= color "white")
                      base-attrs
@@ -108,7 +107,6 @@ TODO: Research that."
 (s/defn draw-pair [square :- square-description
                    owner
                    opts]
-  (comment (println "Drawing pair" square))
   (om/component
    (let [row-n (:row square)
          pair (if (odd? row-n)
@@ -126,7 +124,6 @@ TODO: Research that."
   (om/component
    (let [n (:row row)
          content (:content row)]
-     (comment (println "Specifically: " content "\nwhich has" (count content) "entries"))
      (apply dom/tr nil
             (om/build-all
              draw-pair
