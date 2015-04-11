@@ -24,10 +24,24 @@
 (s/defn board-click
   [channel :- async-channel
    square :- square-description]
+  ;; TODO: In a 1-player game, really need to
+  ;; verify that it's the human player's turn
   (go (>! channel {:event :board-clicked
                    :square square})))
 
 ;;; == Concurrent Processes =================================
+
+(s/defn board-event-loop
+  [board-events :- async-channel
+   state :- board/board-repr
+   board-commands :- async-channel]
+  (println "Entering Board Event loop")
+  (go (loop [event (<! board-events)]
+        (when event
+          (when-let [command (board/event->command state event)]
+            (>! board-commands command))
+          (recur (<! board-events))))
+      (println "Board Event Loop exiting")))
 
 (s/defn board-command-loop
   "this concurrent process receives board command messages
@@ -140,7 +154,7 @@ rows and draw the individual rows"
   (reify
     om/IWillMount
     (will-mount [_]
-      (println "Mounting Checkerboard")
+      (comment (println "Mounting Checkerboard"))
       (let [
             ;; the board generates events on this channel
             ;;     {:event :event-symbol
@@ -156,21 +170,21 @@ rows and draw the individual rows"
             ;; for other processes to acquire the board state atom
             ;;     (atom (create-board))
             board-state (chan)]
-        (comment (board-event-loop board-events board board-commands))
+        (board-event-loop board-events board board-commands)
         (board-command-loop board-commands board)
         (board-state-source-loop board-state board)
 
         ;; Child components need access to them
-        (println "Async channels created. Assigning to component local state")
+        (comment (println "Async channels created. Assigning to component local state"))
         (om/set-state! owner :board-state board-state)
         (om/set-state! owner :board-events board-events)
         (om/set-state! owner :board-commands board-commands)
-        (println "UI State set")))
+        (comment (println "UI State set"))))
 
     om/IRenderState
     (render-state [this {:keys [board-events] :as state}]
       (let [board-events-debugging-garbage (chan)]
-        (println "Rendering the playing field:\n" (pr-str board))
+        (comment (println "Rendering the playing field:\n" (pr-str board)))
         (dom/table nil
                    (apply dom/tbody nil
                           ;; aka (->> board :playing-field (partition 4) (om/build-all draw-row))
@@ -183,7 +197,7 @@ rows and draw the individual rows"
                                         {:opts {:board-events board-events}})))))
     om/IWillUnmount
     (will-unmount [this]
-      (println "Unmounting the checkerboard")
+      (comment (println "Unmounting the checkerboard"))
       (doseq [channel-name [:board-state :board-events :board-commands]]
         (let [channel (om/get-state owner channel-name)]
           (async/close! channel))))))
@@ -194,6 +208,9 @@ rows and draw the individual rows"
   (println "UI - Binding board to root")
   (let [root (om/root
               checkerboard       ; top of Component chain
+              #_(fn [board owner]
+                (om/component
+                 (dom/p nil "Hold on!!")))
               board              ; our game state
               {:target (. js/document (getElementById "checkers"))
                :shared {}})]
