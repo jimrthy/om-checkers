@@ -5,6 +5,7 @@
 (enable-console-print!)
 (fw/start {:on-jsload (fn []
                         ;; This is what kicks off the magic
+                        (print "Starting the system")
                         (system/ctor)
                         (print "System started successfully"))})
 

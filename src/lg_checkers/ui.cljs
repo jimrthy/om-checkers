@@ -46,6 +46,8 @@
                               ;; This isn't as wasteful as it might seem at
                               ;; first glance because of shared immutable state
                               (update-in next [:event-stack] conj next))))
+            (catch js/Error ex
+              (println ex "\nUnhandled exception thrown"))
             (catch :default ex
               ;; Protect the loop
               (println ex "\nEscaped Command handler")))
@@ -71,43 +73,77 @@ TODO: Research that."
     ;; Put returns true unless the channel's closed
     (println "Start the state-pushing loop")
     (loop [still-going (>! board-state board-atom)]
-      (println "Something requested board-state")
-      (when still-going
-        (recur (>! board-state board-atom))))
+      (try
+        (println "Something requested board-state")
+        (when still-going
+          (recur (>! board-state board-atom)))
+        (catch js/Error ex
+          (println ex "Unhandled exception thrown"))
+        (catch :deault ex
+          ;; This doesn't seem to work, but it's
+          ;; supposed to be the
+          ;; official catch-all handler
+          (println ex "Non-exception thrown"))))
     (println "Channel for posting Board State closed")))
 
 ;;; == Board UI Drawing ===================================
 
 (s/defn draw-square
-  [{:keys [color content]} owner {:keys [board-events] :as opts}]
+  [{:keys [color content row column] :as square}
+   owner
+   {:keys [board-events] :as opts}]
   (om/component
+   (comment)
    (let [base-attrs {:className color}
          clj-attrs (if (= color "white")
                      base-attrs
                      (assoc base-attrs :onClick (fn [e]
                                                   (println "You clicked on a " content)
-                                                  (board-click board-events content))))
+                                                  (board-click board-events (dissoc square :color)))))
          attrs (clj->js clj-attrs)]
+     (println "Generated attribs:" clj-attrs)
      (if (= color "white")
-       (dom/td attrs)
-       (dom/td attrs (dom/div #js{:className content}))))))
+       (dom/td attrs nil)
+       (dom/td attrs (comment (apply dom/div #js{:className (content)} nil)))))
+   (println "Drawing" color "square containing" content
+            "\nState:" square "\nOpts:" opts)
+
+   (dom/td nil "Another")))
 
 (s/defn draw-pair [square :- square-description
                    owner
                    opts]
-  (println "Drawing pair" square)
+  (comment (println "Drawing pair" square))
   (om/component
    (let [row-n (:row square)
          pair (if (odd? row-n)
                 ["white" "green"]
-                ["green" "white"])]
-     (om/build-all
-      draw-square
-      (map
-       #({:color %
-          :content square})
-       pair)
-      {:opts opts}))))
+                ["green" "white"])
+         squares (map
+                  #(assoc square :color %)
+                  pair)]
+     (comment (println "Building components based on" squares))
+     (comment)
+     (let [result (om/build-all
+                   draw-square
+                   squares
+                   {:opts opts})]
+       (comment (println "draw-square returned" result "which is a " (type result)
+                         "with" (count result) "members"
+                         "that really look more like")
+                (doseq [cpt result]
+                  ;; This is useless
+                  (comment) (println  "Component: " (js->clj cpt))
+                  ;; Object is not seqable
+                  (comment (doseq [[k v] cpt] (println k ":" v)))
+                  ;; .getOwnPropertyNames might be a useful alternative
+                  ;; But this seems worth keeping
+                  (let [props (.keys js/Object cpt)]
+                    (doseq [prop props]
+                      (print prop ":" (aget cpt prop)))))
+                (println "that"))
+       (apply dom/span nil result))
+     #_(dom/td nil "placeholder"))))
 
 (defn draw-row [row owner opts]
   (om/component
@@ -118,9 +154,10 @@ TODO: Research that."
      (apply dom/tr nil
             (om/build-all
              draw-pair
-             (map-indexed (fn [column cell]
-                    {:content cell, :row n, :column column})
-                  (:content row))
+             (map-indexed
+              (fn [column cell]
+                {:content cell, :row n, :column column})
+              (:content row))
              {:opts  opts})))))
 
 ; given a checkerboard data structure, partition into
