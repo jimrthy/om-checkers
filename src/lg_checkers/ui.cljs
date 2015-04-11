@@ -12,20 +12,30 @@
 
 (def async-channel (type (chan)))
 
+(def square-description {:row s/Int
+                         :column s/Int
+                         :content board/pieces})
+
 ;;; == Internals ==========================================
 
 ; == UI events ==========================================
 ; when we click a game square, we send an event
 
+(s/defn board-click
+  [channel :- async-channel
+   square :- square-description]
+  (go (>! channel {:event :board-clicked
+                   :square square})))
 
 ;;; == Concurrent Processes =================================
 
-(s/defn board-command-event-loop
+(s/defn board-command-loop
   "this concurrent process receives board command messages
    and executes on them.  at present, the only thing it does
    is sets the desired game position to the desired piece"
   [board-commands :- async-channel
    board-atom]
+  (println "Entering Board Command loop")
   (go (loop [command (<! board-commands)]
         (when command
           (try
@@ -68,14 +78,104 @@ TODO: Research that."
 
 ;;; == Board UI Drawing ===================================
 
+(s/defn draw-square
+  [{:keys [color content]} owner {:keys [board-events] :as opts}]
+  (om/component
+   (let [base-attrs {:className color}
+         clj-attrs (if (= color "white")
+                     base-attrs
+                     (assoc base-attrs :onClick (fn [e]
+                                                  (println "You clicked on a " content)
+                                                  (board-click board-events content))))
+         attrs (clj->js clj-attrs)]
+     (if (= color "white")
+       (dom/td attrs)
+       (dom/td attrs (dom/div #js{:className content}))))))
+
+(s/defn draw-pair [square :- square-description
+                   owner
+                   opts]
+  (println "Drawing pair" square)
+  (om/component
+   (let [row-n (:row square)
+         pair (if (odd? row-n)
+                ["white" "green"]
+                ["green" "white"])]
+     (om/build-all
+      draw-square
+      (map
+       #({:color %
+          :content square})
+       pair)
+      {:opts opts}))))
+
+(defn draw-row [row owner opts]
+  (om/component
+   (println "Drawing Row:" row)
+   (let [n (:row row)
+         content (:content row)]
+     (println "Specifically: " content "\nwhich has" (count content) "entries")
+     (apply dom/tr nil
+            (om/build-all
+             draw-pair
+             (map-indexed (fn [column cell]
+                    {:content cell, :row n, :column column})
+                  (:content row))
+             {:opts  opts})))))
+
 ; given a checkerboard data structure, partition into
 ; rows and draw the individual rows
 (defn checkerboard [board owner]
   (reify
-    om/IRender
-    (render [this]
-      (dom/p "Stop the insanity"))
-))
+    om/IWillMount
+    (will-mount [_]
+      (println "Mounting Checkerboard")
+      (let [
+            ;; the board generates events on this channel
+            ;;     {:event :event-symbol
+            ;;      :position <int>}
+            board-events (chan)
+
+            ;; the board receives commands to manipulate its state
+            ;;     {:command :command-symbol
+            ;;      :position <integer>
+            ;;      :piece :piece-symbol}
+            board-commands (chan)
+
+            ;; for other processes to acquire the board state atom
+            ;;     (atom (create-board))
+            board-state (chan)]
+        (comment (board-event-loop board-events board board-commands))
+        (board-command-loop board-commands board)
+        (board-state-source-loop board-state board)
+
+        ;; Child components need access to them
+        (println "Async channels created. Assigning to component local state")
+        (om/set-state! owner :board-state board-state)
+        (om/set-state! owner :board-events board-events)
+        (om/set-state! owner :board-commands board-commands)
+        (println "UI State set")))
+
+    om/IRenderState
+    (render-state [this {:keys [board-events] :as state}]
+      (let [board-events-debugging-garbage (chan)]
+        (println "Rendering the playing field:\n" (pr-str board))
+        (dom/table nil
+                   (apply dom/tbody nil
+                          ;; aka (->> board :playing-field (partition 4) (om/build-all draw-row))
+                          ;; I'm honestly torn about which version is more readable,
+                          ;; but this one's probably more idiomatic
+                          (om/build-all draw-row (map-indexed (fn [i v]
+                                                                {:row i
+                                                                 :content v})
+                                                              (:playing-field board))
+                                        {:opts {:board-events board-events}})))))
+    om/IWillUnmount
+    (will-unmount [this]
+      (println "Unmounting the checkerboard")
+      (doseq [channel-name [:board-state :board-events :board-commands]]
+        (let [channel (om/get-state owner channel-name)]
+          (async/close! channel))))))
 
 ; == Bootstrap ============================================
 (defn bootstrap-ui [board]
