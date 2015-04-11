@@ -101,9 +101,6 @@ TODO: Research that."
                                                   (println "You clicked on a " content)
                                                   (board-click board-events (dissoc square :color)))))
          attrs (clj->js clj-attrs)]
-     (comment (println "Drawing" color "square containing" content
-                       "\nState:" square "\nOpts:" opts
-                       "\nAttributes:" attrs))
      (if (= color "white")
        (dom/td attrs nil)
        (dom/td attrs (apply dom/div #js{:className (name (ffirst content))} nil))))))
